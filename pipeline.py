@@ -4,9 +4,10 @@ from keras.preprocessing.image import img_to_array
 from keras.preprocessing.image import array_to_img
 import os
 import pandas as pd
+import numpy as np 
 
 def main():
-    # master_shape_mfcc = get_directory("dataset/mfcc_figs/")
+    master_shape_mfcc = get_directory("dataset/mfcc_figs/")
     # master_shape_chroma = get_directory("dataset/chroma_figs/")
     # master_shape_spectral = get_directory("dataset/spectral_figs/")
     # if master_shape_mfcc == master_shape_chroma and master_shape_mfcc == master_shape_spectral:
@@ -23,6 +24,7 @@ def get_directory(location):
             img_array = img_to_array(img)
             if i == 0:
                 master_shape = img_array.shape
+                return master_shape
             else:
                 if img_array.shape != master_shape:
                     print("different shape")
@@ -34,11 +36,12 @@ def get_ids(location):
     metadata = pd.read_csv(location)
     fold_dict = {}
     for index, row in metadata.iterrows():
-        fold_dict.setdefault(row["fold"], [[],[]])
-        fold_dict[row['fold']][0].append(row['slice_file_name'].replace('.wav', '.png'))
-        fold_dict[row['fold']][1].append(row['classID'])
-    for key in fold_dict:
-        print(fold_dict[key])
+        fold_dict.setdefault(row["fold"]-1, [[],[]])
+        fold_dict[row['fold']-1][0].append(row['slice_file_name'].replace('.wav', '.png'))
+        fold_dict[row['fold']-1][1].append(row['classID']-1)
+    # for k in (fold_dict.keys()):
+    #     print(k)
+    return fold_dict
 
 class DataGenerator(keras.utils.Sequence):
     'Generates data for Keras'
