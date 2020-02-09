@@ -1,7 +1,7 @@
-import keras
-from keras.preprocessing.image import load_img
-from keras.preprocessing.image import img_to_array
-from keras.preprocessing.image import array_to_img
+import tensorflow.keras
+from tensorflow.keras.preprocessing.image import load_img
+from tensorflow.keras.preprocessing.image import img_to_array
+from tensorflow.keras.preprocessing.image import array_to_img
 import os
 import pandas as pd
 import numpy as np 
@@ -33,6 +33,7 @@ def get_directory(location):
     return master_shape 
 
 def get_ids(location):
+
     metadata = pd.read_csv(location)
     fold_dict = {}
     for index, row in metadata.iterrows():
@@ -41,9 +42,10 @@ def get_ids(location):
         fold_dict[row['fold']-1][1].append(row['classID']-1)
     # for k in (fold_dict.keys()):
     #     print(k)
+
     return fold_dict
 
-class DataGenerator(keras.utils.Sequence):
+class DataGenerator(tensorflow.keras.utils.Sequence):
     'Generates data for Keras'
     def __init__(self, file_location, list_IDs, labels, batch_size=32, dim=(32,32,32), n_channels=1,
                  n_classes=10, shuffle=True):
@@ -87,15 +89,16 @@ class DataGenerator(keras.utils.Sequence):
         X = np.empty((self.batch_size, *self.dim, self.n_channels))
         y = np.empty((self.batch_size), dtype=int)
 
+
         # Generate data
         for i, ID in enumerate(list_IDs_temp):
             # Store sample
-            X[i,] = img_to_array(img_load(self.file_location + ID))
-
+            X[i,] = img_to_array(load_img(self.file_location + ID))
+            
             # Store class
-            y[i] = self.labels[ID]
+            y[i] = ID.split('-')[1]
 
-        return X, keras.utils.to_categorical(y, num_classes=self.n_classes)      
+        return X, tensorflow.keras.utils.to_categorical(y, num_classes=self.n_classes)      
 
 
 if __name__ == "__main__": 
