@@ -4,19 +4,26 @@ from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras.layers import Conv2D, MaxPooling2D, AveragePooling2D, Activation
 from tensorflow.keras.layers import BatchNormalization, Flatten, Dropout, Input,Dense
 from tensorflow.keras.callbacks import EarlyStopping
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import precision_score
+from sklearn.metrics import recall_score
+from sklearn.metrics import f1_score
 import numpy as np
 from tensorflow.keras.utils import multi_gpu_model
+from prettytable import PrettyTable
+from pandas import get_dummies
  
 
-def main():
+def main(feature_extractmethods):
     params = {
-        'dim': pipeline.get_directory("dataset/mfcc_figs/")[:-1],
+        'dim': pipeline.get_directory("dataset/"+feature_extractmethods)[:-1],
         'batch_size': 64,
         'n_classes': 10,
         'n_channels': 3,
         'shuffle': True}
-
+    
     fold_dict = pipeline.get_ids('dataset/metadata/UrbanSound8K.csv')
+    t = PrettyTable(['Exp-Num'] + ['Acc', 'Recall', 'F1-Score', 'valid exp'])
     for i in range (10):
         training_data_partition = []
         testing_data_partition = []
@@ -34,6 +41,10 @@ def main():
 
         testing_data_partition.extend(fold_dict[i][0])
         testing_label_partition.extend(fold_dict[i][1])
+        test_batchs = len(testing_label_partition) // params['batch_size']
+        
+        testing_label_partition = testing_label_partition[:test_batchs*params['batch_size']]
+
 
         validation_data_partition = training_data_partition[len(training_data_partition) // 10 * 9:]
         training_data_partition = training_data_partition[:len(training_data_partition) // 10 * 9]
@@ -43,9 +54,10 @@ def main():
 
         test_generator = pipeline.DataGenerator("dataset/mfcc_figs/", testing_data_partition, testing_label_partition, **params)
 
+        onehot_testing_labelpartition, label_dict = onehot_encoding(testing_label_partition, params['n_classes'])
+        # label_dict = get_label_dict(testing_label_partition, onehot_testing_labelpartition, params['n_classes'])
+
         model = get_model(params['dim']+(params['n_channels'],), params['n_classes'])
-        # model.summary()
-        # model = multi_gpu_model(model, gpus=2)
         
         es = EarlyStopping(monitor='val_loss', mode = 'min', verbose = 1, patience = 15)
 
@@ -58,6 +70,37 @@ def main():
                     use_multiprocessing=True,
                     epochs=100,
                     workers=6)
+        
+        yhat_probs = model.predict_generator(test_generator, verbose = 1) 
+        y_predict_classes_onthot = []
+        for prob in yhat_probs:
+            maxElement = np.where(prob == np.amax(prob))[0][0]
+            temp = '['
+            temp += '0 ' * (maxElement)
+            temp += '1'
+            temp += ' 0' * (params['n_classes']-maxElement-1)
+            temp += ']'
+            y_predict_classes_onthot.append(temp)
+   
+        yhat_probs = np.squeeze(yhat_probs)
+        yhat_classes = np.squeeze(y_predict_classes_onthot)
+        testy = np.squeeze(onehot_testing_labelpartition)
+        temp = []
+        for y in testy:
+            temp += [np.array2string(y)]
+        testy = temp
+        testy = onehot_to_label(testy, label_dict)
+        yhat_classes = onehot_to_label(yhat_classes, label_dict)
+
+        accuracy = accuracy_score(testy, yhat_classes)
+        precision = precision_score(testy, yhat_classes, average='macro')
+        recall = recall_score(testy, yhat_classes, average='macro')
+        f1 = f1_score(testy, yhat_classes, average='macro')
+        t.add_row([i, accuracy, precision, recall, f1])
+        # print([i, accuracy, precision, recall, f1])
+    print(t)
+
+
 
 def get_model(input_shape, numofclasses):
     inputs = Input(shape=input_shape)
@@ -80,6 +123,31 @@ def convLayer(filters, previouslayer, kernel_size = (5,5), strides = (2,2)):
     outputs = AveragePooling2D(pool_size=(2,2), strides = (2,2))(outputs)
     return outputs
 
+def onehot_to_label(y_onehot, label_dict):
+    result = []
+    for y in y_onehot:
+        result += [label_dict[y]]
+
+    return result
+
+def onehot_encoding(Y, num_classes):
+    onehot = get_dummies(Y)
+    Y_onehot = onehot.values
+    label_dict = get_label_dict(Y, Y_onehot, num_classes)
+    return Y_onehot, label_dict
+
+def get_label_dict(Y, Y_onehot, num_classes):
+    label_dict = dict()
+    while num_classes != 0:
+        for i in range(len(Y)):
+            key = np.array2string(Y_onehot[i])
+
+            if key not in label_dict:
+                num_classes -= 1
+                label_dict[key] = Y[i]
+    return label_dict
+
 if __name__ == "__main__": 
-    main()
-    
+    features = ['mfcc_figs/', 'chroma_figs/', 'spectral_figs/']
+    for feature in features:
+        main(feature)

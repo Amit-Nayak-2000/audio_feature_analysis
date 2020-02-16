@@ -100,6 +100,5 @@ class DataGenerator(tensorflow.keras.utils.Sequence):
 
         return X, tensorflow.keras.utils.to_categorical(y, num_classes=self.n_classes)      
 
-
 if __name__ == "__main__": 
     main()
