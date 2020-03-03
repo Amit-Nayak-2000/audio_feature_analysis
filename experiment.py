@@ -17,13 +17,13 @@ from pandas import get_dummies
 def main(feature_extractmethods):
     params = {
         'dim': pipeline.get_directory("dataset/"+feature_extractmethods)[:-1],
-        'batch_size': 64,
+        'batch_size': 32,
         'n_classes': 10,
         'n_channels': 3,
         'shuffle': True}
-    
+    verbose = 2
     fold_dict = pipeline.get_ids('dataset/metadata/UrbanSound8K.csv')
-    t = PrettyTable(['Exp-Num'] + ['Acc', 'Recall', 'F1-Score', 'valid exp'])
+    t = PrettyTable(['Exp-Num'] + ['Acc', 'Recall', 'F1-Score', 'f1'])
     for i in range (10):
         training_data_partition = []
         testing_data_partition = []
@@ -32,12 +32,12 @@ def main(feature_extractmethods):
         testing_label_partition = []
 
         for j in range(i):
-            training_data_partition.extend(fold_dict[i][0])
-            training_label_partition.extend(fold_dict[i][1])
+            training_data_partition.extend(fold_dict[j][0])
+            training_label_partition.extend(fold_dict[j][1])
 
         for j in range(i+1, 10):
-            training_data_partition.extend(fold_dict[i][0])
-            training_label_partition.extend(fold_dict[i][1])
+            training_data_partition.extend(fold_dict[j][0])
+            training_label_partition.extend(fold_dict[j][1])
 
         testing_data_partition.extend(fold_dict[i][0])
         testing_label_partition.extend(fold_dict[i][1])
@@ -49,17 +49,17 @@ def main(feature_extractmethods):
         validation_data_partition = training_data_partition[len(training_data_partition) // 10 * 9:]
         training_data_partition = training_data_partition[:len(training_data_partition) // 10 * 9]
 
-        training_generator = pipeline.DataGenerator("dataset/mfcc_figs/", training_data_partition, training_label_partition, **params)
-        validation_generator = pipeline.DataGenerator("dataset/mfcc_figs/", validation_data_partition, training_label_partition, **params)
+        training_generator = pipeline.DataGenerator("dataset/"+feature_extractmethods, training_data_partition, training_label_partition, **params)
+        validation_generator = pipeline.DataGenerator("dataset/"+feature_extractmethods, validation_data_partition, training_label_partition, **params)
 
-        test_generator = pipeline.DataGenerator("dataset/mfcc_figs/", testing_data_partition, testing_label_partition, **params)
+        test_generator = pipeline.DataGenerator("dataset/"+feature_extractmethods, testing_data_partition, testing_label_partition, **params)
 
         onehot_testing_labelpartition, label_dict = onehot_encoding(testing_label_partition, params['n_classes'])
         # label_dict = get_label_dict(testing_label_partition, onehot_testing_labelpartition, params['n_classes'])
 
         model = get_model(params['dim']+(params['n_channels'],), params['n_classes'])
         
-        es = EarlyStopping(monitor='val_loss', mode = 'min', verbose = 1, patience = 15)
+        es = EarlyStopping(monitor='val_loss', mode = 'min', verbose = verbose, patience = 15)
 
         model.compile(loss=tensorflow.keras.losses.categorical_crossentropy,
                     optimizer=tensorflow.keras.optimizers.Adam(0.001),
@@ -67,11 +67,14 @@ def main(feature_extractmethods):
 
         model.fit_generator(generator=training_generator,
                     validation_data=validation_generator,
-                    use_multiprocessing=True,
+                    use_multiprocessing=False,
                     epochs=100,
-                    workers=6)
+                    verbose = verbose,
+                    callbacks=[es],
+                    # validation_steps=len(validation_data_partition)//params['batch_size'],
+                    workers=1)
         
-        yhat_probs = model.predict_generator(test_generator, verbose = 1) 
+        yhat_probs = model.predict_generator(test_generator, verbose = verbose) 
         y_predict_classes_onthot = []
         for prob in yhat_probs:
             maxElement = np.where(prob == np.amax(prob))[0][0]
@@ -97,7 +100,7 @@ def main(feature_extractmethods):
         recall = recall_score(testy, yhat_classes, average='macro')
         f1 = f1_score(testy, yhat_classes, average='macro')
         t.add_row([i, accuracy, precision, recall, f1])
-        # print([i, accuracy, precision, recall, f1])
+        print([i, accuracy, precision, recall, f1])
     print(t)
 
 
@@ -107,11 +110,14 @@ def get_model(input_shape, numofclasses):
     master = inputs
 
     for i in range (5):
-        master = convLayer(min(64, 2 ** (i+4)), master, kernel_size = (3,3), strides = (1,1))
+        master = convLayer(min(64, 2 ** (i+4)), master, kernel_size = (5,5), strides = (2,2))
+
 
     master = Flatten()(master)
     master = Dense(50, activation = 'relu')(master)
+    master = Dropout(0.25)(master)
     master = Dense(20, activation = 'relu')(master)
+    master = Dropout(0.25)(master)
     master = Dense(numofclasses, activation = 'softmax')(master)
 
     model= Model(inputs = inputs, outputs = master)
@@ -119,7 +125,8 @@ def get_model(input_shape, numofclasses):
 
 def convLayer(filters, previouslayer, kernel_size = (5,5), strides = (2,2)):
     outputs = Conv2D(filters, kernel_size=kernel_size, activation = 'relu', padding = 'same')(previouslayer)
-    # outputs = BatchNormalization(axis=-1)(outputs)
+    outputs = BatchNormalization(axis=-1)(outputs)
+    outputs = Dropout(0.25)(outputs)
     outputs = AveragePooling2D(pool_size=(2,2), strides = (2,2))(outputs)
     return outputs
 
